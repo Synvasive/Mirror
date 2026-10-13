@@ -26,6 +26,9 @@ Then run:
 wally install
 ```
 
+### Roblox
+Get the model from the [Creator Store](https://create.roblox.com/store/asset/107639234817696/Mirror) and put it in `ReplicatedStorage`.
+
 ### Manual
 Copy the `src` folder into `ReplicatedStorage` and require `init.luau` as `Mirror`.
 
