@@ -79,16 +79,16 @@ end)
 ### Server
 
 #### `Mirror.new(Token, Data?)`
-Creates a replica. `Token` is the name clients listen for with `Mirror.OnNew`. `Data` becomes the replica's table — read it through `Replica.Data`, but write through `Set` so changes replicate.
+Creates a reflection. `Token` is the name clients listen for with `Mirror.OnNew`. `Data` becomes the reflection's table — read it through `Reflection.Data`, but write through `Set` so changes replicate.
 
 | Method | Description |
 |---|---|
-| `Replica:Set(Path, Value)` | Sets a value at `Path` (an array of keys) and replicates it reliably |
-| `Replica:SetUnreliable(Path, Value)` | Same as `Set`, but sent unreliably when possible — use for values where only the latest matters |
-| `Replica:Replicate()` | Makes the replica visible to every player |
-| `Replica:Subscribe(Player)` | Makes the replica visible to one player |
-| `Replica:Unsubscribe(Player)` | Hides the replica from a subscribed player |
-| `Replica:Destroy()` | Removes the replica from every client |
+| `Reflection:Set(Path, Value)` | Sets a value at `Path` (an array of keys) and replicates it reliably |
+| `Reflection:SetUnreliable(Path, Value)` | Same as `Set`, but sent unreliably when possible — use for values where only the latest matters |
+| `Reflection:Replicate()` | Makes the reflection visible to every player |
+| `Reflection:Subscribe(Player)` | Makes the reflection visible to one player |
+| `Reflection:Unsubscribe(Player)` | Hides the reflection from a subscribed player |
+| `Reflection:Destroy()` | Removes the reflection from every client |
 
 #### `Mirror.Flush()`
 Sends all pending changes. Runs automatically every `Heartbeat`.
@@ -96,18 +96,18 @@ Sends all pending changes. Runs automatically every `Heartbeat`.
 ### Client
 
 #### `Mirror.OnNew(Token, Callback)`
-Calls `Callback(Replica)` for every existing and future replica with that token. Returns a function that disconnects the listener.
+Calls `Callback(Reflection)` for every existing and future reflection with that token. Returns a function that disconnects the listener.
 
 #### `Mirror.Get(Id)`
-Returns the replica with that id, if the client can see it.
+Returns the reflection with that id, if the client can see it.
 
 | Member | Description |
 |---|---|
-| `Replica.Id` | Server-assigned id |
-| `Replica.Token` | Token the replica was created with |
-| `Replica.Data` | The replicated table, kept up to date |
-| `Replica:OnChange(Callback)` | Calls `Callback(Path, Value, Old)` after each change. Returns a disconnect function |
-| `Replica:OnDestroy(Callback)` | Calls `Callback()` when the replica is destroyed or hidden. Returns a disconnect function |
+| `Reflection.Id` | Server-assigned id |
+| `Reflection.Token` | Token the reflection was created with |
+| `Reflection.Data` | The replicated table, kept up to date |
+| `Reflection:OnChange(Callback)` | Calls `Callback(Path, Value, Old)` after each change. Returns a disconnect function |
+| `Reflection:OnDestroy(Callback)` | Calls `Callback()` when the reflection is destroyed or hidden. Returns a disconnect function |
 
 ## Supported Values
 

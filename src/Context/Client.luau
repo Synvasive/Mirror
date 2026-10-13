@@ -9,19 +9,19 @@ const Network = require "../Network/Client"
 --> Types <--
 type Changed = (Path: { any }, Value: any, Old: any) -> ()
 
-export type Replica = {
+export type Reflection = {
 	Id: number,
 	Token: string,
 	Data: { [any]: any },
 
-	OnChange: (self: Replica, Callback: Changed) -> () -> (),
-	OnDestroy: (self: Replica, Callback: () -> ()) -> () -> (),
+	OnChange: (self: Reflection, Callback: Changed) -> () -> (),
+	OnDestroy: (self: Reflection, Callback: () -> ()) -> () -> (),
 }
 
 --> Variables <--
 const Keys: { [number]: string } = {}
-const Replicas: { [number]: Replica } = {}
-const Listeners: { [string]: { (Replica: Replica) -> () } } = {}
+const Reflections: { [number]: Reflection } = {}
+const Listeners: { [string]: { (Reflection: Reflection) -> () } } = {}
 
 --> Main <--
 const Mirror = {}
@@ -47,8 +47,8 @@ function Helper.Remove(List: { any }, Callback: any): () -> ()
 	end
 end
 
-function Helper.Apply(Replica: any, Path: { any }, Value: any)
-	local Node = Replica.Data
+function Helper.Apply(Reflection: any, Path: { any }, Value: any)
+	local Node = Reflection.Data
 	const Last = #Path
 
 	for Index = 1, Last - 1 do
@@ -66,7 +66,7 @@ function Helper.Apply(Replica: any, Path: { any }, Value: any)
 	const Old = Node[Path[Last]]
 	Node[Path[Last]] = Value
 
-	for _, Callback in table.clone(Replica._Changed) do
+	for _, Callback in table.clone(Reflection._Changed) do
 		Helper.Call(Callback, Path, Value, Old)
 	end
 end
@@ -86,7 +86,7 @@ function Helper.Receive(Payload: buffer, Extras: { any }?)
 			const Token = Codec.Read(Reader)
 			const Data = Codec.Read(Reader)
 
-			const Replica = setmetatable({
+			const Reflection = setmetatable({
 				Id = Id,
 				Token = Token,
 				Data = if type(Data) == "table" then Data else {},
@@ -95,10 +95,10 @@ function Helper.Receive(Payload: buffer, Extras: { any }?)
 				_Destroyed = {},
 			}, Class) :: any
 
-			Replicas[Id] = Replica
+			Reflections[Id] = Reflection
 
 			for _, Callback in table.clone(Listeners[Token] or {}) do
-				Helper.Call(Callback, Replica)
+				Helper.Call(Callback, Reflection)
 			end
 		elseif Kind == Message.Set then
 			const Id = Codec.ReadVarint(Reader)
@@ -110,24 +110,24 @@ function Helper.Receive(Payload: buffer, Extras: { any }?)
 			end
 
 			const Value = Codec.Read(Reader)
-			const Replica = Replicas[Id]
+			const Reflection = Reflections[Id]
 
-			if Replica then
-				Helper.Apply(Replica, Path, Value)
+			if Reflection then
+				Helper.Apply(Reflection, Path, Value)
 			end
 		elseif Kind == Message.Destroy then
 			const Id = Codec.ReadVarint(Reader)
-			const Replica = Replicas[Id] :: any
+			const Reflection = Reflections[Id] :: any
 
-			if Replica then
-				Replicas[Id] = nil
+			if Reflection then
+				Reflections[Id] = nil
 
-				for _, Callback in table.clone(Replica._Destroyed) do
+				for _, Callback in table.clone(Reflection._Destroyed) do
 					Helper.Call(Callback)
 				end
 
-				table.clear(Replica._Changed)
-				table.clear(Replica._Destroyed)
+				table.clear(Reflection._Changed)
+				table.clear(Reflection._Destroyed)
 			end
 		else
 			error(`Mirror: unknown message {Kind}`)
@@ -136,33 +136,33 @@ function Helper.Receive(Payload: buffer, Extras: { any }?)
 end
 
 --> Methods <--
-function Mirror.OnNew(Token: string, Callback: (Replica: Replica) -> ()): () -> ()
+function Mirror.OnNew(Token: string, Callback: (Reflection: Reflection) -> ()): () -> ()
 	const List = Listeners[Token] or {}
 	Listeners[Token] = List
 	table.insert(List, Callback)
 
-	for _, Replica in Replicas do
-		if Replica.Token == Token then
-			task.spawn(Callback, Replica)
+	for _, Reflection in Reflections do
+		if Reflection.Token == Token then
+			task.spawn(Callback, Reflection)
 		end
 	end
 
 	return Helper.Remove(List, Callback)
 end
 
-function Mirror.Get(Id: number): Replica?
-	return Replicas[Id]
+function Mirror.Get(Id: number): Reflection?
+	return Reflections[Id]
 end
 
 --> Class <--
-function Class.OnChange(Replica: any, Callback: Changed): () -> ()
-	table.insert(Replica._Changed, Callback)
-	return Helper.Remove(Replica._Changed, Callback)
+function Class.OnChange(Reflection: any, Callback: Changed): () -> ()
+	table.insert(Reflection._Changed, Callback)
+	return Helper.Remove(Reflection._Changed, Callback)
 end
 
-function Class.OnDestroy(Replica: any, Callback: () -> ()): () -> ()
-	table.insert(Replica._Destroyed, Callback)
-	return Helper.Remove(Replica._Destroyed, Callback)
+function Class.OnDestroy(Reflection: any, Callback: () -> ()): () -> ()
+	table.insert(Reflection._Destroyed, Callback)
+	return Helper.Remove(Reflection._Destroyed, Callback)
 end
 
 --> Setup <--

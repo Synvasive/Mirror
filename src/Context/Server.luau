@@ -29,21 +29,21 @@ type Segment = {
 type Viewer = {
 	Ready: boolean,
 	Known: { [number]: boolean },
-	Creates: { [Replica]: boolean },
+	Creates: { [Reflection]: boolean },
 	Destroys: { number },
 }
 
-export type Replica = {
+export type Reflection = {
 	Id: number,
 	Token: string,
 	Data: { [any]: any },
 
-	Set: (self: Replica, Path: { any }, Value: any) -> (),
-	SetUnreliable: (self: Replica, Path: { any }, Value: any) -> (),
-	Replicate: (self: Replica) -> (),
-	Subscribe: (self: Replica, Player: Player) -> (),
-	Unsubscribe: (self: Replica, Player: Player) -> (),
-	Destroy: (self: Replica) -> (),
+	Set: (self: Reflection, Path: { any }, Value: any) -> (),
+	SetUnreliable: (self: Reflection, Path: { any }, Value: any) -> (),
+	Replicate: (self: Reflection) -> (),
+	Subscribe: (self: Reflection, Player: Player) -> (),
+	Unsubscribe: (self: Reflection, Player: Player) -> (),
+	Destroy: (self: Reflection) -> (),
 }
 
 --> Constants <--
@@ -53,9 +53,9 @@ const Limit = 900
 const KeyIds: { [string]: number } = {}
 const KeyList: { string } = {}
 
-const Replicas: { [number]: Replica } = {}
+const Reflections: { [number]: Reflection } = {}
 const Viewers: { [Player]: Viewer } = {}
-const Dirty: { Replica } = {}
+const Dirty: { Reflection } = {}
 
 local Used: { number } = {}
 local Count = 0
@@ -83,14 +83,14 @@ Class.__index = Class
 const Helper = {}
 
 --> Helper <--
-function Helper.Visible(Replica: any, Player: Player): boolean
-	return Replica._Everyone or Replica._Subscribers[Player] == true
+function Helper.Visible(Reflection: any, Player: Player): boolean
+	return Reflection._Everyone or Reflection._Subscribers[Player] == true
 end
 
-function Helper.Mark(Replica: any)
-	if not Replica._Dirty then
-		Replica._Dirty = true
-		table.insert(Dirty, Replica)
+function Helper.Mark(Reflection: any)
+	if not Reflection._Dirty then
+		Reflection._Dirty = true
+		table.insert(Dirty, Reflection)
 	end
 end
 
@@ -130,9 +130,9 @@ function Helper.Apply(Data: { [any]: any }, Path: { any }, Value: any)
 	Node[Path[Last]] = Value
 end
 
-function Helper.Queue(Replica: any, Path: { any }, Value: any, IsUnreliable: boolean)
+function Helper.Queue(Reflection: any, Path: { any }, Value: any, IsUnreliable: boolean)
 	assert(#Path > 0 and #Path < 256, "Mirror: path needs 1 to 255 keys")
-	Helper.Apply(Replica.Data, Path, Value)
+	Helper.Apply(Reflection.Data, Path, Value)
 
 	if not Codec.Sendable(Value) then
 		return
@@ -144,16 +144,16 @@ function Helper.Queue(Replica: any, Path: { any }, Value: any, IsUnreliable: boo
 		end
 	end
 
-	const Pending = Replica._Pending
+	const Pending = Reflection._Pending
 	const Key = Helper.Key(Path)
 
 	if Key then
-		const Previous = Replica._Index[Key]
+		const Previous = Reflection._Index[Key]
 		if Previous then
 			Pending[Previous].Dead = true
 		end
 
-		Replica._Index[Key] = #Pending + 1
+		Reflection._Index[Key] = #Pending + 1
 	end
 
 	table.insert(Pending, {
@@ -163,7 +163,7 @@ function Helper.Queue(Replica: any, Path: { any }, Value: any, IsUnreliable: boo
 		Dead = false,
 	})
 
-	Helper.Mark(Replica)
+	Helper.Mark(Reflection)
 end
 
 function Helper.Segment(IsUnreliable: boolean, Write: () -> ()): Segment?
@@ -237,18 +237,18 @@ function Helper.Ready(Player: Player)
 
 	Viewer.Ready = true
 
-	for _, Replica in Replicas do
-		if Helper.Visible(Replica, Player) then
-			Viewer.Creates[Replica] = true
+	for _, Reflection in Reflections do
+		if Helper.Visible(Reflection, Player) then
+			Viewer.Creates[Reflection] = true
 		end
 	end
 end
 
 --> Methods <--
-function Mirror.new(Token: string, Data: { [any]: any }?): Replica
+function Mirror.new(Token: string, Data: { [any]: any }?): Reflection
 	Count += 1
 
-	const Replica = setmetatable({
+	const Reflection = setmetatable({
 		Id = Count,
 		Token = Token,
 		Data = Data or {},
@@ -260,8 +260,8 @@ function Mirror.new(Token: string, Data: { [any]: any }?): Replica
 		_Dirty = false,
 	}, Class) :: any
 
-	Replicas[Replica.Id] = Replica
-	return Replica
+	Reflections[Reflection.Id] = Reflection
+	return Reflection
 end
 
 function Mirror.Flush()
@@ -271,20 +271,20 @@ function Mirror.Flush()
 
 	Frame.Cursor = 0
 
-	const Encoded: { [Replica]: { Segment } } = {}
-	const Snapshots: { [Replica]: Segment | false } = {}
+	const Encoded: { [Reflection]: { Segment } } = {}
+	const Snapshots: { [Reflection]: Segment | false } = {}
 
-	for _, Replica in Dirty :: { any } do
+	for _, Reflection in Dirty :: { any } do
 		const Segments = {}
 
-		for _, Op in Replica._Pending :: { Op } do
+		for _, Op in Reflection._Pending :: { Op } do
 			if Op.Dead then
 				continue
 			end
 
 			const Segment = Helper.Segment(Op.Unreliable, function()
 				Codec.U8(Frame, Message.Set)
-				Codec.Varint(Frame, Replica.Id)
+				Codec.Varint(Frame, Reflection.Id)
 				Codec.U8(Frame, #Op.Path)
 
 				for _, Key in Op.Path do
@@ -299,10 +299,10 @@ function Mirror.Flush()
 			end
 		end
 
-		Encoded[Replica] = Segments
-		Replica._Pending = {}
-		Replica._Index = {}
-		Replica._Dirty = false
+		Encoded[Reflection] = Segments
+		Reflection._Pending = {}
+		Reflection._Index = {}
+		Reflection._Dirty = false
 	end
 
 	table.clear(Dirty)
@@ -322,17 +322,17 @@ function Mirror.Flush()
 
 		table.clear(Viewer.Destroys)
 
-		for Replica in Viewer.Creates do
-			local Snapshot = Snapshots[Replica]
+		for Reflection in Viewer.Creates do
+			local Snapshot = Snapshots[Reflection]
 			if Snapshot == nil then
 				Snapshot = Helper.Segment(false, function()
 					Codec.U8(Frame, Message.Create)
-					Codec.Varint(Frame, Replica.Id)
-					Codec.Write(Frame, Replica.Token)
-					Codec.Write(Frame, Replica.Data)
+					Codec.Varint(Frame, Reflection.Id)
+					Codec.Write(Frame, Reflection.Token)
+					Codec.Write(Frame, Reflection.Data)
 				end)
 
-				Snapshots[Replica] = Snapshot or false
+				Snapshots[Reflection] = Snapshot or false
 			end
 
 			if not Snapshot then
@@ -343,8 +343,8 @@ function Mirror.Flush()
 			Helper.Copy(Out, Extras, Snapshot)
 		end
 
-		for Replica, Segments in Encoded do
-			if Viewer.Creates[Replica] or not Helper.Visible(Replica, Player) then
+		for Reflection, Segments in Encoded do
+			if Viewer.Creates[Reflection] or not Helper.Visible(Reflection, Player) then
 				continue
 			end
 
@@ -373,79 +373,79 @@ function Mirror.Flush()
 end
 
 --> Class <--
-function Class.Set(Replica: Replica, Path: { any }, Value: any)
-	Helper.Queue(Replica, Path, Value, false)
+function Class.Set(Reflection: Reflection, Path: { any }, Value: any)
+	Helper.Queue(Reflection, Path, Value, false)
 end
 
-function Class.SetUnreliable(Replica: Replica, Path: { any }, Value: any)
-	Helper.Queue(Replica, Path, Value, true)
+function Class.SetUnreliable(Reflection: Reflection, Path: { any }, Value: any)
+	Helper.Queue(Reflection, Path, Value, true)
 end
 
-function Class.Replicate(Replica: any)
-	Replica._Everyone = true
+function Class.Replicate(Reflection: any)
+	Reflection._Everyone = true
 
 	for Player, Viewer in Viewers do
 		if Viewer.Ready then
-			Viewer.Creates[Replica] = true
+			Viewer.Creates[Reflection] = true
 		end
 	end
 end
 
-function Class.Subscribe(Replica: any, Player: Player)
-	const Visible = Helper.Visible(Replica, Player)
-	Replica._Subscribers[Player] = true
+function Class.Subscribe(Reflection: any, Player: Player)
+	const Visible = Helper.Visible(Reflection, Player)
+	Reflection._Subscribers[Player] = true
 
 	const Viewer = Viewers[Player]
 	if Viewer and Viewer.Ready and not Visible then
-		Viewer.Creates[Replica] = true
+		Viewer.Creates[Reflection] = true
 	end
 end
 
-function Class.Unsubscribe(Replica: any, Player: Player)
-	if not Replica._Subscribers[Player] then
+function Class.Unsubscribe(Reflection: any, Player: Player)
+	if not Reflection._Subscribers[Player] then
 		return
 	end
 
-	Replica._Subscribers[Player] = nil
+	Reflection._Subscribers[Player] = nil
 
 	const Viewer = Viewers[Player]
-	if Viewer and Viewer.Ready and not Helper.Visible(Replica, Player) then
-		if Viewer.Creates[Replica] then
-			Viewer.Creates[Replica] = nil
+	if Viewer and Viewer.Ready and not Helper.Visible(Reflection, Player) then
+		if Viewer.Creates[Reflection] then
+			Viewer.Creates[Reflection] = nil
 		else
-			table.insert(Viewer.Destroys, Replica.Id)
+			table.insert(Viewer.Destroys, Reflection.Id)
 		end
 	end
 end
 
-function Class.Destroy(Replica: any)
-	if not Replicas[Replica.Id] then
+function Class.Destroy(Reflection: any)
+	if not Reflections[Reflection.Id] then
 		return
 	end
 
-	Replicas[Replica.Id] = nil
+	Reflections[Reflection.Id] = nil
 
 	for Player, Viewer in Viewers do
-		if not Viewer.Ready or not Helper.Visible(Replica, Player) then
+		if not Viewer.Ready or not Helper.Visible(Reflection, Player) then
 			continue
 		end
 
-		if Viewer.Creates[Replica] then
-			Viewer.Creates[Replica] = nil
+		if Viewer.Creates[Reflection] then
+			Viewer.Creates[Reflection] = nil
 		else
-			table.insert(Viewer.Destroys, Replica.Id)
+			table.insert(Viewer.Destroys, Reflection.Id)
 		end
 	end
 
-	if Replica._Dirty then
-		const Index = table.find(Dirty, Replica)
+	if Reflection._Dirty then
+		const Index = table.find(Dirty, Reflection)
 		if Index then
 			table.remove(Dirty, Index)
 		end
 	end
 
-	Replica._Everyone = false
-	table.clear(Replica._Subscribers)
+	Reflection._Everyone = false
+	table.clear(Reflection._Subscribers)
 end
 
 --> Setup <--
@@ -462,8 +462,8 @@ Players.PlayerAdded:Connect(Join)
 Players.PlayerRemoving:Connect(function(Player)
 	Viewers[Player] = nil
 
-	for _, Replica in Replicas :: { [number]: any } do
-		Replica._Subscribers[Player] = nil
+	for _, Reflection in Reflections :: { [number]: any } do
+		Reflection._Subscribers[Player] = nil
 	end
 end)
 
