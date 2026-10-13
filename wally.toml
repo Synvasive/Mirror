@@ -1,0 +1,14 @@
+[package]
+name = "synvasive/mirror"
+description = "Buffer-encoded table replication with per-player visibility, built on Blink"
+
+version = "1.0.0"
+license = "MIT"
+
+registry = "https://github.com/UpliftGames/wally-index"
+realm = "shared"
+
+exclude = ["**"]
+include = ["src", "src/**/*", "default.project.json", "wally.toml", "LICENSE", "README.md"]
+
+[dependencies]

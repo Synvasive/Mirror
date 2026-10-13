@@ -1,0 +1,6 @@
+std = "engine+roblox"
+
+[lints]
+unused_variable = "allow"
+multiple_statements = "allow"
+shadowing = "allow" 

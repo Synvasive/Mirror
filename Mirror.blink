@@ -1,0 +1,25 @@
+option ClientOutput = "src/Network/Client.luau"
+option ServerOutput = "src/Network/Server.luau"
+option RemoteScope = "Mirror"
+option ManualReplication = true
+option Casing = Pascal
+
+event Ready {
+    From: Client,
+    Type: Reliable,
+    Call: SingleSync,
+}
+
+event Reliable {
+    From: Server,
+    Type: Reliable,
+    Call: SingleAsync,
+    Data: (buffer(..4294967295), unknown)
+}
+
+event Unreliable {
+    From: Server,
+    Type: Unreliable,
+    Call: SingleAsync,
+    Data: (buffer, unknown)
+}
