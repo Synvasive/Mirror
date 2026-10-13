@@ -12,8 +12,12 @@ const Network = require "../Network/Server"
 
 --> Types <--
 type Op = {
+	Kind: number,
 	Path: { any },
 	Value: any,
+	Index: number?,
+	Name: string?,
+	Args: { any }?,
 	Unreliable: boolean,
 	Dead: boolean,
 }
@@ -40,9 +44,18 @@ export type Reflection = {
 
 	Set: (self: Reflection, Path: { any }, Value: any) -> (),
 	SetUnreliable: (self: Reflection, Path: { any }, Value: any) -> (),
+	SetValues: (self: Reflection, Path: { any }, Values: { [any]: any }) -> (),
+	TableInsert: (self: Reflection, Path: { any }, Value: any, Index: number?) -> number,
+	TableRemove: (self: Reflection, Path: { any }, Index: number) -> any,
+	Write: (self: Reflection, Name: string, ...any) -> ...any,
+
 	Replicate: (self: Reflection) -> (),
+	DontReplicate: (self: Reflection) -> (),
 	Subscribe: (self: Reflection, Player: Player) -> (),
 	Unsubscribe: (self: Reflection, Player: Player) -> (),
+
+	Identify: (self: Reflection) -> string,
+	IsActive: (self: Reflection) -> boolean,
 	Destroy: (self: Reflection) -> (),
 }
 
@@ -111,11 +124,10 @@ function Helper.Key(Path: { any }): string?
 	return table.concat(Parts, "\0")
 end
 
-function Helper.Apply(Data: { [any]: any }, Path: { any }, Value: any)
+function Helper.Node(Data: { [any]: any }, Path: { any }, Depth: number): { [any]: any }
 	local Node = Data
-	const Last = #Path
 
-	for Index = 1, Last - 1 do
+	for Index = 1, Depth do
 		const Key = Path[Index]
 		local Child = Node[Key]
 
@@ -127,21 +139,79 @@ function Helper.Apply(Data: { [any]: any }, Path: { any }, Value: any)
 		Node = Child
 	end
 
-	Node[Path[Last]] = Value
+	return Node
+end
+
+function Helper.Sendable(Path: { any }): boolean
+	for _, Key in Path do
+		if not Codec.Sendable(Key) then
+			return false
+		end
+	end
+
+	return true
+end
+
+function Helper.Push(Reflection: any, Op: Op)
+	if Reflection._Writing > 0 or not Helper.Sendable(Op.Path) then
+		return
+	end
+
+	for _, Pending in Reflection._Pending :: { Op } do
+		Pending.Unreliable = false
+	end
+
+	Reflection._Barrier = true
+	table.clear(Reflection._Index)
+	table.insert(Reflection._Pending, Op)
+	Helper.Mark(Reflection)
+end
+
+function Helper.Path(Path: { any })
+	Codec.U8(Frame, #Path)
+
+	for _, Key in Path do
+		Codec.Write(Frame, Key)
+	end
+end
+
+function Helper.Encode(Reflection: any, Op: Op)
+	Codec.U8(Frame, Op.Kind)
+	Codec.Varint(Frame, Reflection.Id)
+
+	if Op.Kind == Message.Write then
+		const Args = Op.Args :: { any }
+		Codec.Write(Frame, Op.Name)
+		Codec.U8(Frame, Args.n)
+
+		for Index = 1, Args.n do
+			Codec.Write(Frame, Args[Index])
+		end
+
+		return
+	end
+
+	Helper.Path(Op.Path)
+
+	if Op.Kind == Message.Insert or Op.Kind == Message.Remove then
+		Codec.Varint(Frame, Op.Index :: number)
+	end
+
+	if Op.Kind ~= Message.Remove then
+		Codec.Write(Frame, Op.Value)
+	end
 end
 
 function Helper.Queue(Reflection: any, Path: { any }, Value: any, IsUnreliable: boolean)
 	assert(#Path > 0 and #Path < 256, "Mirror: path needs 1 to 255 keys")
-	Helper.Apply(Reflection.Data, Path, Value)
+	Helper.Node(Reflection.Data, Path, #Path - 1)[Path[#Path]] = Value
 
-	if not Codec.Sendable(Value) then
+	if Reflection._Writing > 0 or not Codec.Sendable(Value) then
 		return
 	end
 
-	for _, Key in Path do
-		if not Codec.Sendable(Key) then
-			return
-		end
+	if not Helper.Sendable(Path) then
+		return
 	end
 
 	const Pending = Reflection._Pending
@@ -157,9 +227,10 @@ function Helper.Queue(Reflection: any, Path: { any }, Value: any, IsUnreliable: 
 	end
 
 	table.insert(Pending, {
+		Kind = Message.Set,
 		Path = table.clone(Path),
 		Value = Value,
-		Unreliable = IsUnreliable,
+		Unreliable = IsUnreliable and not Reflection._Barrier,
 		Dead = false,
 	})
 
@@ -245,13 +316,18 @@ function Helper.Ready(Player: Player)
 end
 
 --> Methods <--
-function Mirror.new(Token: string, Data: { [any]: any }?): Reflection
+function Mirror.new(Token: string, Data: { [any]: any }?, WriteLib: ModuleScript?): Reflection
 	Count += 1
 
 	const Reflection = setmetatable({
 		Id = Count,
 		Token = Token,
 		Data = Data or {},
+
+		_Module = WriteLib,
+		_Lib = if WriteLib then require(WriteLib) :: any else nil,
+		_Writing = 0,
+		_Barrier = false,
 
 		_Everyone = false,
 		_Subscribers = {},
@@ -262,6 +338,10 @@ function Mirror.new(Token: string, Data: { [any]: any }?): Reflection
 
 	Reflections[Reflection.Id] = Reflection
 	return Reflection
+end
+
+function Mirror.FromId(Id: number): Reflection?
+	return Reflections[Id]
 end
 
 function Mirror.Flush()
@@ -283,15 +363,7 @@ function Mirror.Flush()
 			end
 
 			const Segment = Helper.Segment(Op.Unreliable, function()
-				Codec.U8(Frame, Message.Set)
-				Codec.Varint(Frame, Reflection.Id)
-				Codec.U8(Frame, #Op.Path)
-
-				for _, Key in Op.Path do
-					Codec.Write(Frame, Key)
-				end
-
-				Codec.Write(Frame, Op.Value)
+				Helper.Encode(Reflection, Op)
 			end)
 
 			if Segment then
@@ -303,6 +375,7 @@ function Mirror.Flush()
 		Reflection._Pending = {}
 		Reflection._Index = {}
 		Reflection._Dirty = false
+		Reflection._Barrier = false
 	end
 
 	table.clear(Dirty)
@@ -330,6 +403,7 @@ function Mirror.Flush()
 					Codec.Varint(Frame, Reflection.Id)
 					Codec.Write(Frame, Reflection.Token)
 					Codec.Write(Frame, Reflection.Data)
+					Codec.Write(Frame, Reflection._Module)
 				end)
 
 				Snapshots[Reflection] = Snapshot or false
@@ -381,12 +455,113 @@ function Class.SetUnreliable(Reflection: Reflection, Path: { any }, Value: any)
 	Helper.Queue(Reflection, Path, Value, true)
 end
 
+function Class.SetValues(Reflection: Reflection, Path: { any }, Values: { [any]: any })
+	const Size = #Path
+
+	for Key, Value in Values do
+		const Full = table.clone(Path)
+		Full[Size + 1] = Key
+		Helper.Queue(Reflection, Full, Value, false)
+	end
+end
+
+function Class.TableInsert(Reflection: Reflection, Path: { any }, Value: any, Index: number?): number
+	assert(#Path < 256, "Mirror: path needs fewer than 256 keys")
+
+	const List = Helper.Node(Reflection.Data, Path, #Path)
+	const At = Index or #List + 1
+	table.insert(List, At, Value)
+
+	Helper.Push(Reflection, {
+		Kind = Message.Insert,
+		Path = table.clone(Path),
+		Index = At,
+		Value = Value,
+		Unreliable = false,
+		Dead = false,
+	})
+
+	return At
+end
+
+function Class.TableRemove(Reflection: Reflection, Path: { any }, Index: number): any
+	assert(#Path < 256, "Mirror: path needs fewer than 256 keys")
+
+	const List = Helper.Node(Reflection.Data, Path, #Path)
+	const Value = table.remove(List, Index)
+
+	Helper.Push(Reflection, {
+		Kind = Message.Remove,
+		Path = table.clone(Path),
+		Index = Index,
+		Unreliable = false,
+		Dead = false,
+	})
+
+	return Value
+end
+
+function Class.Write(Reflection: any, Name: string, ...: any): ...any
+	const Writer = Reflection._Lib and Reflection._Lib[Name]
+	assert(Writer, `Mirror: no write function named "{Name}" for {Reflection:Identify()}`)
+
+	const Args = table.pack(...)
+	assert(Args.n < 256, "Mirror: writes take fewer than 256 arguments")
+
+	Reflection._Writing += 1
+	const Results = table.pack(pcall(Writer, Reflection, ...))
+	Reflection._Writing -= 1
+
+	if not Results[1] then
+		error(Results[2], 2)
+	end
+
+	Helper.Push(Reflection, {
+		Kind = Message.Write,
+		Path = {},
+		Name = Name,
+		Args = Args,
+		Unreliable = false,
+		Dead = false,
+	})
+
+	return table.unpack(Results, 2, Results.n)
+end
+
+function Class.Identify(Reflection: Reflection): string
+	return `[Id:{Reflection.Id};Token:{Reflection.Token}]`
+end
+
+function Class.IsActive(Reflection: Reflection): boolean
+	return Reflections[Reflection.Id] == Reflection
+end
+
 function Class.Replicate(Reflection: any)
 	Reflection._Everyone = true
 
 	for Player, Viewer in Viewers do
 		if Viewer.Ready then
 			Viewer.Creates[Reflection] = true
+		end
+	end
+end
+
+function Class.DontReplicate(Reflection: any)
+	if not Reflection._Everyone then
+		return
+	end
+
+	Reflection._Everyone = false
+
+	for Player, Viewer in Viewers do
+		if not Viewer.Ready or Helper.Visible(Reflection, Player) then
+			continue
+		end
+
+		if Viewer.Creates[Reflection] then
+			Viewer.Creates[Reflection] = nil
+		else
+			table.insert(Viewer.Destroys, Reflection.Id)
 		end
 	end
 end

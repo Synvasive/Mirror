@@ -10,6 +10,8 @@ Lightweight table replication for Roblox. Mirror keeps a server table in sync wi
 - **Unreliable updates** — high-frequency values can skip the reliable queue
 - **Change coalescing** — multiple writes to the same path in one frame send only the latest value
 - **Late joiners** — players receive a full snapshot of everything visible to them when they load in
+- **Write functions** — run the same mutation on the server and every client, sending only the function name and arguments
+- **Familiar API** — `Set`, `SetValues`, `TableInsert`, `TableRemove`, `Write`, `OnSet` and `FromId` work like Replica's, so most projects port with a few renames
 
 ## Installation
 
@@ -78,17 +80,27 @@ end)
 
 ### Server
 
-#### `Mirror.new(Token, Data?)`
-Creates a reflection. `Token` is the name clients listen for with `Mirror.OnNew`. `Data` becomes the reflection's table — read it through `Reflection.Data`, but write through `Set` so changes replicate.
+#### `Mirror.new(Token, Data?, WriteLib?)`
+Creates a reflection. `Token` is the name clients listen for with `Mirror.OnNew`. `Data` becomes the reflection's table — read it through `Reflection.Data`, but write through the methods below so changes replicate. `WriteLib` is an optional ModuleScript of write functions, see [Write Functions](#write-functions).
 
 | Method | Description |
 |---|---|
 | `Reflection:Set(Path, Value)` | Sets a value at `Path` (an array of keys) and replicates it reliably |
 | `Reflection:SetUnreliable(Path, Value)` | Same as `Set`, but sent unreliably when possible — use for values where only the latest matters |
+| `Reflection:SetValues(Path, Values)` | Sets every key in `Values` inside the table at `Path` |
+| `Reflection:TableInsert(Path, Value, Index?)` | Inserts into the array at `Path` and returns the index it was inserted at |
+| `Reflection:TableRemove(Path, Index)` | Removes from the array at `Path` and returns the removed value |
+| `Reflection:Write(Name, ...)` | Runs a write function on the server and every client, and returns its results |
 | `Reflection:Replicate()` | Makes the reflection visible to every player |
+| `Reflection:DontReplicate()` | Undoes `Replicate` — only subscribed players keep seeing the reflection |
 | `Reflection:Subscribe(Player)` | Makes the reflection visible to one player |
 | `Reflection:Unsubscribe(Player)` | Hides the reflection from a subscribed player |
+| `Reflection:Identify()` | Returns a readable `[Id:1;Token:Round]` string for debugging |
+| `Reflection:IsActive()` | Returns `false` once the reflection is destroyed |
 | `Reflection:Destroy()` | Removes the reflection from every client |
+
+#### `Mirror.FromId(Id)`
+Returns the reflection with that id, if it still exists.
 
 #### `Mirror.Flush()`
 Sends all pending changes. Runs automatically every `Heartbeat`.
@@ -98,7 +110,7 @@ Sends all pending changes. Runs automatically every `Heartbeat`.
 #### `Mirror.OnNew(Token, Callback)`
 Calls `Callback(Reflection)` for every existing and future reflection with that token. Returns a function that disconnects the listener.
 
-#### `Mirror.Get(Id)`
+#### `Mirror.FromId(Id)`
 Returns the reflection with that id, if the client can see it.
 
 | Member | Description |
@@ -107,7 +119,34 @@ Returns the reflection with that id, if the client can see it.
 | `Reflection.Token` | Token the reflection was created with |
 | `Reflection.Data` | The replicated table, kept up to date |
 | `Reflection:OnChange(Callback)` | Calls `Callback(Path, Value, Old)` after each change. Returns a disconnect function |
+| `Reflection:OnSet(Path, Callback)` | Calls `Callback(Value, Old)` when exactly `Path` changes. Returns a disconnect function |
+| `Reflection:OnWrite(Name, Callback)` | Calls `Callback(...)` with the arguments after a write function runs. Returns a disconnect function |
 | `Reflection:OnDestroy(Callback)` | Calls `Callback()` when the reflection is destroyed or hidden. Returns a disconnect function |
+| `Reflection:Identify()`, `Reflection:IsActive()` | Same as on the server |
+
+Client reflections also have `Set`, `SetValues`, `TableInsert`, `TableRemove` and `Write`. They only change the local copy and exist so write functions can run on the client.
+
+`OnChange` fires for every kind of change. For `TableInsert` and `TableRemove`, `Path` ends with the index, `Value` is the inserted value and `Old` is the removed value.
+
+## Write Functions
+
+A write function changes a reflection the same way on the server and on every client, so only its name and arguments are sent. Put them in a ModuleScript the client can see, such as one in `ReplicatedStorage`:
+
+```luau
+return {
+	Give = function(Inventory, Item)
+		Inventory:TableInsert({ "Items" }, Item)
+		Inventory:Set({ "Count" }, #Inventory.Data.Items)
+	end,
+}
+```
+
+```luau
+local Inventory = Mirror.new("Inventory", { Items = {}, Count = 0 }, ReplicatedStorage.InventoryWrites)
+Inventory:Write("Give", "Iron Sword")
+```
+
+Write functions must only depend on the reflection's data and their arguments, so every client reaches the same result as the server. Changes made inside them are not sent separately.
 
 ## Supported Values
 
@@ -115,7 +154,7 @@ Returns the reflection with that id, if the client can see it.
 
 ## Unreliable Updates
 
-`SetUnreliable` sends through an `UnreliableRemoteEvent`, so a change may be dropped or arrive out of order. Mirror falls back to the reliable channel when a change is larger than 900 bytes or uses a key the player hasn't received yet.
+`SetUnreliable` sends through an `UnreliableRemoteEvent`, so a change may be dropped or arrive out of order. Mirror falls back to the reliable channel when a change is larger than 900 bytes, uses a key the player hasn't received yet, or shares a frame with a `TableInsert`, `TableRemove` or `Write` on the same reflection. Avoid `SetUnreliable` on paths inside arrays you insert into or remove from — a late unreliable change could land on a shifted index.
 
 ## Networking
 
