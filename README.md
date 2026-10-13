@@ -3,15 +3,15 @@ Lightweight table replication for Roblox. Mirror keeps a server table in sync wi
 
 ## Features
 
-- **Delta replication** — only changed paths are sent, batched once per frame
-- **Per-player visibility** — replicate to everyone, or subscribe specific players
-- **Buffer encoding** — numbers, strings, vectors, CFrames, colors and more are packed into a binary format
-- **String interning** — repeated keys and short strings are sent once per player, then referenced by id
-- **Unreliable updates** — high-frequency values can skip the reliable queue
-- **Change coalescing** — multiple writes to the same path in one frame send only the latest value
-- **Late joiners** — players receive a full snapshot of everything visible to them when they load in
-- **Write functions** — run the same mutation on the server and every client, sending only the function name and arguments
-- **Familiar API** — `Set`, `SetValues`, `TableInsert`, `TableRemove`, `Write`, `OnSet` and `FromId` work like Replica's, so most projects port with a few renames
+- **Delta replication**: Only changed paths are sent, batched once per frame
+- **Per-player visibility**: Replicate to everyone, or subscribe specific players
+- **Buffer encoding**: Numbers, strings, vectors, CFrames, colors and more are packed into a binary format
+- **String interning**: Repeated keys and short strings are sent once per player, then referenced by id
+- **Unreliable updates**: High-frequency values can skip the reliable queue
+- **Change coalescing**: Multiple writes to the same path in one frame send only the latest value
+- **Late joiners**: Players receive a full snapshot of everything visible to them when they load in
+- **Write functions**: Run the same mutation on the server and every client, sending only the function name and arguments
+- **Familiar API**: `Set`, `SetValues`, `TableInsert`, `TableRemove`, `Write`, `OnSet` and `FromId` work like Replica's, so most projects port with a few renames
 
 ## Installation
 
@@ -29,7 +29,7 @@ wally install
 ### Manual
 Copy the `src` folder into `ReplicatedStorage` and require `init.luau` as `Mirror`.
 
-Mirror must be required on the client for anything to replicate — the client tells the server it's ready when the module loads.
+Mirror must be required on the client for anything to replicate. The client tells the server it's ready when the module loads.
 
 ## Usage
 ### Server
@@ -81,18 +81,18 @@ end)
 ### Server
 
 #### `Mirror.new(Token, Data?, WriteLib?)`
-Creates a reflection. `Token` is the name clients listen for with `Mirror.OnNew`. `Data` becomes the reflection's table — read it through `Reflection.Data`, but write through the methods below so changes replicate. `WriteLib` is an optional ModuleScript of write functions, see [Write Functions](#write-functions).
+Creates a reflection. `Token` is the name clients listen for with `Mirror.OnNew`. `Data` becomes the reflection's table. Read it through `Reflection.Data`, but write through the methods below so changes replicate. `WriteLib` is an optional ModuleScript of write functions, see [Write Functions](#write-functions).
 
 | Method | Description |
 |---|---|
 | `Reflection:Set(Path, Value)` | Sets a value at `Path` (an array of keys) and replicates it reliably |
-| `Reflection:SetUnreliable(Path, Value)` | Same as `Set`, but sent unreliably when possible — use for values where only the latest matters |
+| `Reflection:SetUnreliable(Path, Value)` | Same as `Set`, but sent unreliably when possible. Use it for values where only the latest matters |
 | `Reflection:SetValues(Path, Values)` | Sets every key in `Values` inside the table at `Path` |
 | `Reflection:TableInsert(Path, Value, Index?)` | Inserts into the array at `Path` and returns the index it was inserted at |
 | `Reflection:TableRemove(Path, Index)` | Removes from the array at `Path` and returns the removed value |
 | `Reflection:Write(Name, ...)` | Runs a write function on the server and every client, and returns its results |
 | `Reflection:Replicate()` | Makes the reflection visible to every player |
-| `Reflection:DontReplicate()` | Undoes `Replicate` — only subscribed players keep seeing the reflection |
+| `Reflection:DontReplicate()` | Undoes `Replicate`, so only subscribed players keep seeing the reflection |
 | `Reflection:Subscribe(Player)` | Makes the reflection visible to one player |
 | `Reflection:Unsubscribe(Player)` | Hides the reflection from a subscribed player |
 | `Reflection:Identify()` | Returns a readable `[Id:1;Token:Round]` string for debugging |
@@ -154,7 +154,7 @@ Write functions must only depend on the reflection's data and their arguments, s
 
 ## Unreliable Updates
 
-`SetUnreliable` sends through an `UnreliableRemoteEvent`, so a change may be dropped or arrive out of order. Mirror falls back to the reliable channel when a change is larger than 900 bytes, uses a key the player hasn't received yet, or shares a frame with a `TableInsert`, `TableRemove` or `Write` on the same reflection. Avoid `SetUnreliable` on paths inside arrays you insert into or remove from — a late unreliable change could land on a shifted index.
+`SetUnreliable` sends through an `UnreliableRemoteEvent`, so a change may be dropped or arrive out of order. Mirror falls back to the reliable channel when a change is larger than 900 bytes, uses a key the player hasn't received yet, or shares a frame with a `TableInsert`, `TableRemove` or `Write` on the same reflection. Avoid `SetUnreliable` on paths inside arrays you insert into or remove from, since a late unreliable change could land on a shifted index.
 
 ## Networking
 
@@ -169,4 +169,4 @@ Working examples for a public round state and private per-player inventories can
 
 ## License
 
-MIT — see [LICENSE](LICENSE)
+MIT, see [LICENSE](LICENSE)
